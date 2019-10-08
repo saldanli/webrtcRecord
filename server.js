@@ -1,11 +1,20 @@
-const port = 3000
+const HTTPS_PORT = 8443;
+
+const port = 8443
 const express = require('express');
-const http = require('http');
-const fs=require('fs')
+const https = require('https');
+const fs=require('file-system')
 //make sure you keep this order
 var app = express();
-var server = http.createServer(app);
+
+const serverConfig = {
+  key: fs.readFileSync('certs/key.pem'),
+  cert: fs.readFileSync('certs/cert.pem'),
+};
+var server = https.createServer(serverConfig, app);
 var io = require('socket.io').listen(server);
+
+
 
 
 app.get('/broadcast', (req, res) => res.sendFile(__dirname+'/public/broadcast.html'));
@@ -60,9 +69,9 @@ function eof(){
   });
   var fileBuffer = Buffer.concat(file)
 
-  var filePath='./tmp/'+makeid(5);
+  var filePath='./tmp/'+makeid(5)+'.webm';
 
-  fs.write(filePath, fileBuffer, (err) => { 
+  fs.writeFile(filePath, fileBuffer, (err) => { 
     file=[]; 
     if (err) return socket.emit('upload error'); 
    // socket.emit('end upload');

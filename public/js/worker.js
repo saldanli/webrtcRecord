@@ -7,7 +7,7 @@ if(importScripts){
     chunks=[];
 
     
-    let videoStreamChannel=io.connect('http://localhost:3000/videoStreamChannel');
+    let videoStreamChannel=io.connect('https://10.76.204.176:8443/videoStreamChannel');
     videoStreamChannel.on('connect', function(socket){
         console.log('socket connection');
     
@@ -32,10 +32,12 @@ if(importScripts){
 
     self.onmessage=(msg)=>{       
        // let base64String = btoa(String.fromCharCode(...new Uint8Array(msg.data)));
-       console.log(`worker data incaming Messsage ${msg.data}`)
+       
+       console.log(`worker data incoming Messsage ${msg.data}`)
         if (msg.data==='start'){
             videoStreamChannel.emit('record',{data:'',eof:false,start:true})
         }if (msg.data==='eof'){
+           
             videoStreamChannel.emit('record',{data:'',eof:true})       
         }else{
             chunks.push(msg.data);  
