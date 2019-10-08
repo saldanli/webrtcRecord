@@ -7,7 +7,7 @@ if(importScripts){
     chunks=[];
 
     
-    let videoStreamChannel=io.connect('https://10.76.204.176:8443/videoStreamChannel');
+    let videoStreamChannel=io.connect('https://localhost:8443/videoStreamChannel');
     videoStreamChannel.on('connect', function(socket){
         console.log('socket connection');
     
