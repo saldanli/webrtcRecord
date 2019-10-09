@@ -4,13 +4,24 @@ if(importScripts){
 
     importScripts('/socket.io/socket.io.js')
 
-    chunks=[];
+    class ChunkArray extends Array {
+        constructor(channel) {
+            super();
+            this.channel=channel;
+        }
+        push(chunk) {
+            if(this.length==0){
+                this.channel.emit('record',{data:chunk})
+            }
+            return super.push(arguments);
+        }
+    }
 
+   
     
-    let videoStreamChannel=io.connect('https://localhost:8443/videoStreamChannel');
+    let videoStreamChannel=io.connect('http://localhost:3000/videoStreamChannel');
     videoStreamChannel.on('connect', function(socket){
-        console.log('socket connection');
-    
+        console.log('Video stream socket connection');
     });
 
 
@@ -19,31 +30,22 @@ if(importScripts){
         var chunk=chunks.shift();    
         if(chunk){
             console.log(chunk);
-            videoStreamChannel.emit('record',{data:chunk,eof:false,stream:true})
+            videoStreamChannel.emit('record',{data:chunk})
         }else{
-            videoStreamChannel.emit('record',{data:'',eof:false,start:true})
             console.error('chunk null');
         }
-        
-        
     });
 
-    
+    let  chunks=new ChunkArray(videoStreamChannel) 
 
     self.onmessage=(msg)=>{       
        // let base64String = btoa(String.fromCharCode(...new Uint8Array(msg.data)));
-       
-       console.log(`worker data incoming Messsage ${msg.data}`)
-        if (msg.data==='start'){
-            videoStreamChannel.emit('record',{data:'',eof:false,start:true})
-        }if (msg.data==='eof'){
-           
-            videoStreamChannel.emit('record',{data:'',eof:true})       
+        console.log(`worker data incaming Messsage ${JSON.stringify(msg.data)}`)
+        if (msg.data.eof){
+            videoStreamChannel.emit('record',{eof:true,room:msg.data.room})       
         }else{
-            chunks.push(msg.data);  
-
+            chunks.push(msg.data); 
         }
-       
     }
 }
 

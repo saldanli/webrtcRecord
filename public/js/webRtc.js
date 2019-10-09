@@ -1,47 +1,60 @@
 
 'use strict';
 
-'use strict';
+
 
 const startButton = document.getElementById('startButton');
-const callButton = document.getElementById('callButton');
-const hangupButton = document.getElementById('hangupButton');
 
-callButton.disabled = true;
+const hangupButton = document.getElementById('hangupButton');
+const registerRoom = document.getElementById('registerRoom');
+
+
 hangupButton.disabled = true;
 startButton.addEventListener('click', start);
-callButton.addEventListener('click', call);
 hangupButton.addEventListener('click', hangup);
+registerRoom.addEventListener('click', registerRoomFunc);
 
-let worker = new Worker("/resources/js/worker.js");
+const logger={
+  debug:(msg)=>{
+    console.log(`%c${msg}`,'color:magenta');
+  },
+  log:(msg)=>{
+    console.log(msg);
+  },
+  error:()=>{
+    console.error(msg)
+  }
+}
+
+let signaling={};
+let signalingChannel=io.connect('http://localhost:3000/signalingChannel');
+signalingChannel.on('connect', function(socket){
+    console.log('Signnaling channel connection');
+   
+  });
+ signalingChannel.on('signal',(data)=>{
+   signaling.onmessage(data)
+ }) 
+
+ signaling.send= async (data)=>{
+   signalingChannel.emit('signal',{'room':room.value,'data':data});
+ }
 
 
-worker.onmessage = function(event){
-   sending=false;
-};
 
 
 
 
-//let signalingChannel=io.connect('http://localhost:3000/signalingChannel');
-//signalingChannel.on('connect', function(socket){
-  //  console.log('socket connection'); 
- // });
-
-
-
-
+  let worker = new Worker("/resources/js/worker.js");
+  
+  //video record option
   var options = {mimeType: 'video/webm;codecs=vp9'};
   var mediaRecorder;
 
-  var start=true;
+
   function handleDataAvailable(event) {
     if (event.data.size > 0) {
-      worker.postMessage(event.data)
-      if(start){
-        worker.postMessage('start');
-        start=false;
-      }
+      worker.postMessage(event.data)    
     } else {
       // ...
     }
@@ -54,20 +67,20 @@ worker.onmessage = function(event){
   const remoteVideo = document.getElementById('remoteVideo');
   
   localVideo.addEventListener('loadedmetadata', function() {
-    console.log(`Local video videoWidth: ${this.videoWidth}px,  videoHeight: ${this.videoHeight}px`);
+    logger.log(`Local video videoWidth: ${this.videoWidth}px,  videoHeight: ${this.videoHeight}px`);
   });
   
   remoteVideo.addEventListener('loadedmetadata', function() {
-    console.log(`Remote video videoWidth: ${this.videoWidth}px,  videoHeight: ${this.videoHeight}px`);
+    logger.log(`Remote video videoWidth: ${this.videoWidth}px,  videoHeight: ${this.videoHeight}px`);
   });
   
   remoteVideo.addEventListener('resize', () => {
-    console.log(`Remote video size changed to ${remoteVideo.videoWidth}x${remoteVideo.videoHeight}`);
+    logger.log(`Remote video size changed to ${remoteVideo.videoWidth}x${remoteVideo.videoHeight}`);
     // We'll use the first onsize callback as an indication that video has started
     // playing out.
     if (startTime) {
       const elapsedTime = window.performance.now() - startTime;
-      console.log('Setup time: ' + elapsedTime.toFixed(3) + 'ms');
+      logger.log('Setup time: ' + elapsedTime.toFixed(3) + 'ms');
       startTime = null;
     }
   });
@@ -75,185 +88,143 @@ worker.onmessage = function(event){
 
 
   let localStream;
-  let pc1;
-  let pc2;
-  const offerOptions = {
-    offerToReceiveAudio: 1,
-    offerToReceiveVideo: 1
-  };
+  let remoteStream;
   
-  function getName(pc) {
-    return (pc === pc1) ? 'pc1' : 'pc2';
-  }
-  
-  function getOtherPc(pc) {
-    return (pc === pc1) ? pc2 : pc1;
-  }
-
   async function start() {
-    console.log('Requesting local stream');
+    logger.debug('Requesting local stream');
     startButton.disabled = true;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({audio: true, video: true});
-      console.log('Received local stream');
+      logger.debug('Received local stream');
       localVideo.srcObject = stream;
       localStream = stream;
-      callButton.disabled = false;
+      
+      call();
     } catch (e) {
       alert(`getUserMedia() error: ${e.name}`);
     }
   }
 
+const constraints = {audio: true, video: true};
+const configuration = {iceServers: [{url:'stun:stun.l.google.com:19302'}]};
+const pc = new RTCPeerConnection(configuration);
+
+  // send any ice candidates to the other peer
+pc.onicecandidate = ({candidate}) =>{
+  logger.debug(`ice candidate ${candidate}`);
+  signaling.send({candidate});
+} 
+
+// let the "negotiationneeded" event trigger offer generation
+pc.onnegotiationneeded = async () => {
+  try {
+    await pc.setLocalDescription(await pc.createOffer());
+    // send the offer to the other peer
+    signaling.send({desc: pc.localDescription});
+  } catch (err) {
+    console.error(err);
+  }
+};
+
+// once remote track media arrives, show it in remote video element
+pc.ontrack = (event) => {
+  // don't set srcObject again if it is already set.
+  if (remoteVideo.srcObject) return;
+  remoteStream=event.streams[0];
+  remoteVideo.srcObject = remoteStream;
+  mediaRecorder = new MediaRecorder(remoteStream, options);
+  hangupButton.disabled = false;
+  mediaRecorder.ondataavailable = (e)=>  { 
+      if (e.data.size > 0) {
+        worker.postMessage(e.data)
+      } else {
+        // ...
+      }
+};
+  mediaRecorder.start(10000);
+};
+
+pc.oniceconnectionstatechange = function() {
+  if(pc.iceConnectionState == 'disconnected') {
+    logger.debug('disconnecting remote peer')
+    hangup();
+  }
+}
 
   async function call() {
-    callButton.disabled = true;
+    
     hangupButton.disabled = false;
-    console.log('Starting call');
+    logger.log('Starting call');
     startTime = window.performance.now();
-    const videoTracks = localStream.getVideoTracks();
-    const audioTracks = localStream.getAudioTracks();
-    if (videoTracks.length > 0) {
-      console.log(`Using video device: ${videoTracks[0].label}`);
+   
+    try{
+      const stream =await navigator.mediaDevices.getUserMedia(constraints);
+      /**
+       * The newer addTrack() API avoids confusion over whether later changes 
+       * to the track-makeup of a stream affects a peer connection (they do not).
+       * The exception is in Chrome, where addStream() does make the peer connection sensitive 
+       * to later stream changes (though such changes do not fire the negotiationneeded event). 
+       * If you are relying on the Chrome behavior, note that other browsers do not have it.
+       *  You can write web compatible code using feature detection instead:
+       *
+       */
+      stream.getTracks().forEach(function(track) {
+        pc.addTrack(track, stream);
+      });
+      localStream=stream;
+      localVideo.srcObject = stream;
+    } catch (err) {
+      logger.error(err);
     }
-    if (audioTracks.length > 0) {
-      console.log(`Using audio device: ${audioTracks[0].label}`);
-    }
-    const configuration = {sdpSemantics: 'plan-b'};
-    console.log('RTCPeerConnection configuration:', configuration);
-    pc1 = new RTCPeerConnection(configuration);
-    console.log('Created local peer connection object pc1');
-    pc1.addEventListener('icecandidate', e => onIceCandidate(pc1, e));
-    pc2 = new RTCPeerConnection(configuration);
-    console.log('Created remote peer connection object pc2');
-    pc2.addEventListener('icecandidate', e => onIceCandidate(pc2, e));
-    pc1.addEventListener('iceconnectionstatechange', e => onIceStateChange(pc1, e));
-    pc2.addEventListener('iceconnectionstatechange', e => onIceStateChange(pc2, e));
-    pc2.addEventListener('track', gotRemoteStream);
-  
-    localStream.getTracks().forEach(track => pc1.addTrack(track, localStream));
-    console.log('Added local stream to pc1');
-  
+  }
 
-
+  signaling.onmessage = async ({desc, candidate}) => {
     try {
-      console.log('pc1 createOffer start');
-      const offer = await pc1.createOffer(offerOptions);
-      await onCreateOfferSuccess(offer);
-    } catch (e) {
-      onCreateSessionDescriptionError(e);
+      if (desc) {
+        // if we get an offer, we need to reply with an answer
+        if (desc.type === 'offer') {
+          await pc.setRemoteDescription(desc);
+          const stream =
+            await navigator.mediaDevices.getUserMedia(constraints);
+          stream.getTracks().forEach((track) =>
+            pc.addTrack(track, stream));
+            localVideo.srcObject=stream;
+            localStream=stream;
+          await pc.setLocalDescription(await pc.createAnswer());
+          signaling.send({desc: pc.localDescription});
+        } else if (desc.type === 'answer') {
+          await pc.setRemoteDescription(desc);
+        } else {
+          console.log('Unsupported SDP type.');
+        }
+      } else if (candidate) {
+        await pc.addIceCandidate(candidate);
+      }
+    } catch (err) {
+      console.error(err);
     }
-  }
+  };
 
-
-  async function onCreateOfferSuccess(desc) {
-    console.log(`Offer from pc1\n${desc.sdp}`);
-    console.log('pc1 setLocalDescription start');
-    try {
-      await pc1.setLocalDescription(desc);
-      onSetLocalSuccess(pc1);
-    } catch (e) {
-      onSetSessionDescriptionError();
-    }
   
-    console.log('pc2 setRemoteDescription start');
-    try {
-      await pc2.setRemoteDescription(desc);
-      onSetRemoteSuccess(pc2);
-    } catch (e) {
-      onSetSessionDescriptionError();
-    }
   
-    console.log('pc2 createAnswer start');
-    // Since the 'remote' side has no media stream we need
-    // to pass in the right constraints in order for it to
-    // accept the incoming offer of audio and video.
-    try {
-      const answer = await pc2.createAnswer();
-      await onCreateAnswerSuccess(answer);
-    } catch (e) {
-      onCreateSessionDescriptionError(e);
-    }
-  }
-
-
-
-
-  function onSetLocalSuccess(pc) {
-    console.log(`${getName(pc)} setLocalDescription complete`);
-  }
-  
-  function onSetRemoteSuccess(pc) {
-    console.log(`${getName(pc)} setRemoteDescription complete`);
-  }
-  
-  function onSetSessionDescriptionError(error) {
-    console.log(`Failed to set session description: ${error.toString()}`);
-  }
-  
-  function gotRemoteStream(e) {
-    if (remoteVideo.srcObject !== e.streams[0]) {
-      remoteVideo.srcObject = e.streams[0];
-
-      mediaRecorder = new MediaRecorder(localStream, options);
-      mediaRecorder.ondataavailable = handleDataAvailable;
-      mediaRecorder.start(1000);
-      console.log('pc2 received remote stream');
-    }
-  }
-  
-  async function onCreateAnswerSuccess(desc) {
-    console.log(`Answer from pc2:\n${desc.sdp}`);
-    console.log('pc2 setLocalDescription start');
-    try {
-      await pc2.setLocalDescription(desc);
-      onSetLocalSuccess(pc2);
-    } catch (e) {
-      onSetSessionDescriptionError(e);
-    }
-    console.log('pc1 setRemoteDescription start');
-    try {
-      await pc1.setRemoteDescription(desc);
-      onSetRemoteSuccess(pc1);
-    } catch (e) {
-      onSetSessionDescriptionError(e);
-    }
-  }
-  
-  async function onIceCandidate(pc, event) {
-    try {
-      await (getOtherPc(pc).addIceCandidate(event.candidate));
-      onAddIceCandidateSuccess(pc);
-    } catch (e) {
-      onAddIceCandidateError(pc, e);
-    }
-    console.log(`${getName(pc)} ICE candidate:\n${event.candidate ? event.candidate.candidate : '(null)'}`);
-  }
-  
-  function onAddIceCandidateSuccess(pc) {
-    console.log(`${getName(pc)} addIceCandidate success`);
-  }
-  
-  function onAddIceCandidateError(pc, error) {
-    console.log(`${getName(pc)} failed to add ICE Candidate: ${error.toString()}`);
-  }
-  
-  function onIceStateChange(pc, event) {
-    if (pc) {
-      console.log(`${getName(pc)} ICE state: ${pc.iceConnectionState}`);
-      console.log('ICE state change event: ', event);
-    }
-  }
   
   function hangup() {
     console.log('Ending call');
-    pc1.close();
-    pc2.close();
-    pc1 = null;
-    pc2 = null;
+
+
+    pc.close();
     hangupButton.disabled = true;
-    callButton.disabled = false;
+    registerRoom.disabled=false;
+    room.disabled=false; 
+    localStream.getTracks().forEach(track=>{
+      track.stop();
+    });
+
+    remoteStream.getTracks().forEach(track=>{
+      track.stop();
+    })
     mediaRecorder.stop();
-    worker.postMessage('eof');
+    worker.postMessage({eof:true,room:room.value});
   }
 
   function download() {
@@ -269,6 +240,15 @@ worker.onmessage = function(event){
     a.click();
     window.URL.revokeObjectURL(url);
   }
+
+  function registerRoomFunc(){
+    room.disabled=true; 
+    registerRoom.disabled=true; 
+    signalingChannel.emit('join',room.value);
+  }
+
+ 
+ 
   
 
 

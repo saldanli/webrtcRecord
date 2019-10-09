@@ -1,20 +1,11 @@
-const HTTPS_PORT = 8443;
-
-const port = 8443
+const port = 3000
 const express = require('express');
-const https = require('https');
+const http = require('http');
 const fs=require('file-system')
 //make sure you keep this order
 var app = express();
-
-const serverConfig = {
-  key: fs.readFileSync('certs/key.pem'),
-  cert: fs.readFileSync('certs/cert.pem'),
-};
-var server = https.createServer(serverConfig, app);
+var server = http.createServer(app);
 var io = require('socket.io').listen(server);
-
-
 
 
 app.get('/broadcast', (req, res) => res.sendFile(__dirname+'/public/broadcast.html'));
@@ -32,28 +23,15 @@ videoSreamChannel.on('connection', function(socket){
   socket.on('disconnect', function(){
     console.log('user disconnected');
   });
-  socket.on('login',(room)=>{
-    socket.join(room)
-  })
-  socket.on('stream',(ev)=>{
-    var a=Buffer.from(ev.data, 'utf-8')
-    socket.in(ev.room).emit("dataAvailable", ev);
-  })
+ 
 
-  file=[];
-  
-  socket.on('record',(ev)=>{
-    if(ev.eof){
-      eof()
-    }else if(ev.stream){
-      file.push(ev.data)
-      socket.emit("sendAgain");
-    }else if(ev.start){
-      socket.emit("sendAgain");
+  file=[]; 
+  socket.on('record',({eof,data,room})=>{
+    if(eof){
+      eofFunc(room)
+    }else if(data){
+      file.push(data)
     }
-
-    
-    
   })
 
 
@@ -62,14 +40,11 @@ videoSreamChannel.on('connection', function(socket){
 });
 
 
-function eof(){
+function eofFunc(room){
 
-  file=file.filter(function(ele){
-    return ele !== 'start';
-  });
   var fileBuffer = Buffer.concat(file)
 
-  var filePath='./tmp/'+makeid(5)+'.webm';
+  var filePath=__dirname+'/tmp/'+room+'/'+makeid(5)+'.webm';
 
   fs.writeFile(filePath, fileBuffer, (err) => { 
     file=[]; 
@@ -89,16 +64,23 @@ function makeid(length) {
   }
   return result;
 }
-const SignalingRoom='Signalingroom';
-var videoSreamChannel = io.of('/signalingChannel');
-videoSreamChannel.on('connection', function(socket){
-  console.log('someone connected');
-  socket.join(SignalingRoom)
+
+var signalingRoom = io.of('/signalingChannel');
+signalingRoom.on('connection', function(socket){
+  console.log('signalingChannel someone connected');
   socket.on('disconnect', function(){
-    console.log('user disconnected');
+    console.log('signalingChannel user disconnected');
   });
+
+  socket.on('join',function(room){
+    console.log(`user connect to  room :${room}`)
+    socket.join(room);
+  });
+
   socket.on('signal',(ev)=>{
-    socket.in(SignalingRoom).emit("signal", ev);
+
+    console.log(JSON.stringify(ev));
+    socket.broadcast.to(ev.room).emit("signal", ev.data);
   })
 });
 
