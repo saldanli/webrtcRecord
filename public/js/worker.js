@@ -19,7 +19,7 @@ if(importScripts){
 
    
     
-    let videoStreamChannel=io.connect('https://localhost:8443/videoStreamChannel');
+    let videoStreamChannel=io.connect(location.origin+'/videoStreamChannel');
     videoStreamChannel.on('connect', function(socket){
         console.log('Video stream socket connection');
     });

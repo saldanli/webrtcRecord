@@ -27,7 +27,7 @@ const logger={
 }
 
 let signaling={};
-let signalingChannel=io.connect('https://localhost:8443/signalingChannel');
+let signalingChannel=io.connect(location.origin+'/signalingChannel');
 signalingChannel.on('connect', function(socket){
     console.log('Signnaling channel connection');
    
