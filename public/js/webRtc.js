@@ -27,7 +27,7 @@ const logger={
 }
 
 let signaling={};
-let signalingChannel=io.connect('http://localhost:3000/signalingChannel');
+let signalingChannel=io.connect('https://localhost:8443/signalingChannel');
 signalingChannel.on('connect', function(socket){
     console.log('Signnaling channel connection');
    
@@ -134,6 +134,7 @@ pc.ontrack = (event) => {
   remoteVideo.srcObject = remoteStream;
   mediaRecorder = new MediaRecorder(remoteStream, options);
   hangupButton.disabled = false;
+  
   mediaRecorder.ondataavailable = (e)=>  { 
       if (e.data.size > 0) {
         worker.postMessage(e.data)
@@ -141,7 +142,8 @@ pc.ontrack = (event) => {
         // ...
       }
 };
-  mediaRecorder.start(10000);
+  mediaRecorder.start(100);
+  
 };
 
 pc.oniceconnectionstatechange = function() {

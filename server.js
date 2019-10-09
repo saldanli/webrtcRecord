@@ -1,10 +1,14 @@
-const port = 3000
+const port = 8443
 const express = require('express');
-const http = require('http');
+const https = require('https');
 const fs=require('file-system')
 //make sure you keep this order
 var app = express();
-var server = http.createServer(app);
+const serverConfig = {
+  key: fs.readFileSync('certs/key.pem'),
+  cert: fs.readFileSync('certs/cert.pem'),
+};
+var server = https.createServer(serverConfig, app);
 var io = require('socket.io').listen(server);
 
 
